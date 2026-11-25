@@ -1,0 +1,20 @@
+# GameTidepool — DECISIONS
+
+> Append-only.
+
+## ADR-0001: Один HTML-файл без сборки и сервера
+
+Решено реализовать игру в единственном `index.html`, открываемом через `file://`:
+
+- Canvas 2D (`ctx.setTransform` с DPR) — проверялось прямо в браузере.
+- WebAudio — минимальный синтез (осцилляторы), без CDN.
+- Причина: пользователь просит «без сборки и сервера»; node_modules, npm run и dev-сервер — лишнее для браузерной игры.
+- Совместимость: SVG/Canvas/WebAudio — нет отличий от продакшена.
+
+## ADR-0002: Отдельные массивы токенов и эффектов
+
+Коллекционные клубы (`tokens`) и частицы (`fx`) — разные структуры, классификация убирает связку «marker on max», которая сломала отрисовку токенов (баг найден при первом прогоне).
+
+## ADR-0003: Документация по стандарту LiterRel/LaborRel
+
+README, docs/CONTEXT.md, docs/DECISIONS.md — по шаблону `D:\GitHub\knowledge\readme-template.md` и `documentation-system.md`.

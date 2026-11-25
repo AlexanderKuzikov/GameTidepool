@@ -1,0 +1,511 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Glowing Tendril — GameTidepool</title>
+<style>
+:root {
+  --accent: #5ef2a8;
+  --accent2: #b8f0ff;
+  --bg: #06070c;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { height: 100%; overflow: hidden; background: var(--bg); }
+#cv { display: block; position: fixed; inset: 0; }
+.hud {
+  position: fixed; left: 16px; top: 16px; color: var(--accent2);
+  pointer-events: none; font-size: 13px; letter-spacing: 0.2em;
+  text-transform: uppercase; z-index: 2;
+}
+.hud .line { display: flex; gap: 18px; margin-top: 4px; }
+.hud b { color: var(--accent); }
+.overlay {
+  position: fixed; inset: 0; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; z-index: 3;
+  background: rgba(3, 6, 20, 0.55); backdrop-filter: blur(6px);
+}
+.overlay.hidden { display: none; }
+.panel {
+  color: var(--accent2); background: rgba(16, 20, 44, 0.8);
+  border: 1px solid rgba(94, 242, 168, 0.25);
+  border-radius: 14px; padding: 32px 40px; min-width: 320px;
+  box-shadow: 0 0 40px rgba(94, 242, 168, 0.18);
+  animation: fade 0.7s ease;
+}
+@keyframes fade { 0% { opacity: 0; transform: translateY(-6px); } 100% { opacity: 1; transform: none; } }
+.panel h1 {
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: clamp(34px, 6vw, 60px); color: var(--accent);
+  letter-spacing: 0.35em; text-transform: uppercase; text-align: center;
+}
+.panel p {
+  font-size: 12px; letter-spacing: 0.15em; margin: 8px 0 18px;
+  color: #b5c1e0; text-align: center;
+}
+.panel ul { padding-left: 18px; margin-bottom: 18px; color: #c5d2f2; text-align: left; }
+.panel li { line-height: 1.75; margin-left: 2px; }
+.kbd {
+  display: inline-block; min-width: 20px; text-align: center;
+  padding: 1px 6px; border: 1px solid rgba(94, 242, 168, 0.5);
+  border-radius: 4px; font-family: inherit; font-size: 12px;
+  background: rgba(94, 242, 168, 0.1);
+}
+button {
+  background: rgba(94, 242, 168, 0.08);
+  border: 1px solid rgba(94, 242, 168, 0.6);
+  color: var(--accent);
+  padding: 12px 30px; font-size: 15px; letter-spacing: 0.15em;
+  cursor: pointer; border-radius: 10px; margin-top: 14px; width: 100%;
+  transition: background .2s, transform .15s;
+}
+button:hover { background: rgba(94, 242, 168, 0.25); }
+button:focus-visible { outline: 2px solid var(--accent2); }
+.stats { font-size: 14px; color: #9fb1d9; letter-spacing: 0.1em; text-align: left; }
+.stats div { margin: 6px 0; }
+.sonar {
+  position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  border: 1.5px solid var(--accent); opacity: 0; z-index: 1;
+  animation: sonar 0.9s ease-out forwards;
+}
+@keyframes sonar { to { transform: translate(-50%, -50%) scale(2.4); opacity: 0; } }
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<div id="hud" class="hud">
+  <div class="line">Счёт <b id="score">0</b> &nbsp;|&nbsp; Глубина <b id="depth">0.0</b> &nbsp;|&nbsp; Света <b id="tokens">0</b></div>
+  <div class="line">Скорость <b id="speed">0</b>&nbsp;</div>
+</div>
+<div id="menu" class="overlay">
+  <div class="panel">
+    <h1>Glowing Tendril</h1>
+    <p>Ты — сияющий течущий клуб в тихой полости.<br>Двигайся и собирай свет: счёт — дистанция и собранные клубы.</p>
+    <ul>
+      <li>Управление: <span class="kbd">&#8593;</span> <span class="kbd">&#8595;</span> <span class="kbd">&#8594;</span> <span class="kbd">&#8592;</span> или <span class="kbd">W</span><span class="kbd">A</span><span class="kbd">S</span><span class="kbd">D</span></li>
+      <li>Ускорение: <span class="kbd">Shift</span>; пауза: <span class="kbd">P</span>; рестарт: <span class="kbd">R</span></li>
+      <li>Клубы всплывают с перепадов вниз. Раз в 5 собирай — новая метка глубины.</li>
+      <li>Кораллы: слишком быстрая нырялка не оставляет пути.</li>
+    </ul>
+    <button id="startBtn">Начать</button>
+  </div>
+</div>
+<div id="paused" class="overlay hidden">
+  <div class="panel">
+    <h1>Пауза</h1>
+    <button id="resumeBtn">Продолжить</button>
+    <button id="pauseRestart">Рестарт</button>
+  </div>
+</div>
+<div id="over" class="overlay hidden">
+  <div class="panel">
+    <h1>Глубина исчерпана</h1>
+    <div class="stats">
+      <div>Счёт: <span id="overScore"></span></div>
+      <div>Света: <span id="overTokens"></span></div>
+      <div>Глубина: <span id="overDepth"></span></div>
+    </div>
+    <button id="overRestart">Попробовать снова</button>
+    <button id="overMenu">Назад в меню</button>
+  </div>
+</div>
+<script>
+(function () {
+"use strict";
+
+var $ = function (id) { return document.getElementById(id); };
+var cv = $("cv"), ctx = cv.getContext("2d", { alpha: true });
+var W = window.innerWidth, H = window.innerHeight, DPR = Math.min(window.devicePixelRatio, 2);
+
+function resize() {
+  W = window.innerWidth; H = window.innerHeight;
+  cv.style.width = W + "px"; cv.style.height = H + "px";
+  cv.width = W * DPR; cv.height = H * DPR;
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+}
+resize();
+
+/* ------------------------------ Audio ------------------------------ */
+var AC = null;
+function ensureAudio() {
+  try { AC = new AudioContext(); AC.resume(); } catch (e) { AC = null; }
+}
+function tone(freq, dur, amp, release, attack) {
+  if (!AC || !(freq > 10)) return;
+  try {
+    var t0 = AC.currentTime;
+    var o = AC.createOscillator(), g = AC.createGain();
+    o.type = "sine"; o.frequency.value = freq;
+    g.gain.setValueAtTime(0, t0);
+    g.gain.linearRampToValueAtTime(amp, t0 + (attack || 0.004));
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + (release || dur));
+    o.connect(g); g.connect(AC.destination);
+    o.start(); o.stop(t0 + dur);
+  } catch (e) { /* audio off */ }
+}
+function glimmer(n) {
+  if (!AC) return;
+  try {
+    var t0 = AC.currentTime;
+    for (var i = 0; i < n; i++) {
+      var o = AC.createOscillator(), g = AC.createGain();
+      o.type = "sine";
+      o.frequency.value = 500 + rand(400);
+      g.gain.setValueAtTime(0.03, t0 + rand(0.3));
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + rand(0.15) + 0.18);
+      o.connect(g); g.connect(AC.destination);
+      o.start(t0 + i * 0.02); o.stop(t0 + i * 0.02 + 0.22);
+    }
+  } catch (e) { /* audio off */ }
+}
+
+/* ------------------------------ Helpers ------------------------------ */
+function rand(n) { return Math.random() * n; }
+function clamp(v, a, b) { return v < a ? a : (v > b ? b : v); }
+
+/* ------------------------------ Game data ------------------------------ */
+var BANDS = [
+  { name: "Поверхность", scoreMin: 0,    c0: "#2e8fe4", c1: "#5eb8f0", spd: 0.9, pat: 0 },
+  { name: "Колодец",     scoreMin: 320,  c0: "#a25ec0", c1: "#c098f0", spd: 1.3, pat: 1 },
+  { name: "Тина",        scoreMin: 700,  c0: "#e09a3e", c1: "#f0a4ff", spd: 1.6, pat: 2 },
+  { name: "Труба",       scoreMin: 1250, c0: "#006c89", c1: "#3fd0e0", spd: 2.0, pat: 3 }
+];
+function bandAt(sc) {
+  var b = BANDS[0];
+  for (var i = 1; i < BANDS.length; i++) if (sc >= BANDS[i].scoreMin) b = BANDS[i];
+  return b;
+}
+
+var player = { x: 0, y: 0, vx: 0, vy: 0, r: 9, trail: [] };
+var speed = 0, score = 0, tokenCount = 0, dist = 0, t = 0;
+var bnd = bandAt(0);
+var hazards = [], tokens = [], fx = [];
+var KEYS = { w: false, a: false, s: false, d: false, aw: false, as: false, ad: false, aa: false, shift: false };
+function keyOn(k) { KEYS[k] = true; }
+function keyOff(k) { KEYS[k] = false; }
+var KEYMAP = {
+  KeyW: "w", KeyS: "s", KeyA: "aa", KeyD: "ad",
+  ArrowUp: "aw", ArrowDown: "s", ArrowLeft: "aa", ArrowRight: "ad",
+  ShiftLeft: "shift", ShiftRight: "shift"
+};
+function inputDir() {
+  var x = 0, y = 0;
+  if (KEYS.w || KEYS.aw) y -= 1;
+  if (KEYS.s || KEYS.as) y += 1;
+  if (KEYS.a || KEYS.aa) x -= 1;
+  if (KEYS.d || KEYS.ad) x += 1;
+  var len = Math.hypot(x, y);
+  if (len > 0) { x /= len; y /= len; }
+  return { x: x, y: y };
+}
+function resetWorld() {
+  player.x = W / 2; player.y = H / 2;
+  player.vx = player.vy = 0; player.trail.length = 0;
+  speed = 0; score = 0; tokenCount = 0; dist = 0; t = 0;
+  hazards.length = 0; tokens.length = 0; fx.length = 0;
+  bnd = bandAt(0);
+}
+function spawnToken() {
+  var r = 5 + rand(5);
+  tokens.push({
+    x: rand(W), y: rand(H), vx: (rand(1) - 0.5) * 30, vy: (rand(1) - 0.5) * 30, r: r,
+    life: 380 + rand(90), max: 380 + rand(90), dir: rand(2) < 1 ? 1 : -1
+  });
+}
+function spawnHazard() {
+  hazards.push({ x: rand(W), y: rand(H), r: 10 + rand(10), rot: rand(Math.PI * 2), spin: (rand(1) - 0.5) * 0.05 });
+}
+function spawnEffect(n, speedF) {
+  for (var i = 0; i < n; i++) {
+    var a = rand(Math.PI * 2), ln = 25 + rand(35);
+    fx.push({
+      x: player.x + rand(5) - 2, y: player.y + rand(5) - 2,
+      vx: Math.cos(a) * ln, vy: Math.sin(a) * ln,
+      life: 80 + rand(80), color: "#a0d8ff"
+    });
+  }
+}
+
+var TICK = 0;
+
+function updatePlayer(dt) {
+  var dir = inputDir();
+  var base = bnd.spd * 12;
+  var sp = dir.x || dir.y ? base : 0;
+  var accel = KEYS.shift ? sp * 3.2 : sp;
+  player.vx += dir.x * accel * dt - player.vx * (0.994 + 0.006 * bnd.spd);
+  player.vy += dir.y * accel * dt - player.vy * (0.994 + 0.006 * bnd.spd);
+  player.x += player.vx * dt;
+  player.y += player.vy * dt;
+  player.x = clamp(player.x, 6, W - 6);
+  player.y = clamp(player.y, 6, H - 6);
+  player.trail.push([player.x, player.y, Math.hypot(player.vx, player.vy)]);
+  if (player.trail.length > 40) player.trail.shift();
+}
+function updateWorld(dt) {
+  speed = Math.hypot(player.vx, player.vy);
+  dist += speed * dt;
+  score += speed * dt;
+  bnd = bandAt(score);
+
+  for (var i = 0; i < tokens.length; i++) {
+    var tk = tokens[i];
+    tk.x += tk.vx * dt; tk.y += tk.vy * dt; tk.life -= dt;
+    var dx = player.x - tk.x, dy = player.y - tk.y;
+    if (Math.hypot(dx, dy) < tk.r + player.r + 22 && tk.life > 0) {
+      tokens.splice(i, 1);
+      tokenCount++;
+      player.vx += Math.cos(rand(Math.PI * 2)) * 30;
+      player.vy += Math.sin(rand(Math.PI * 2)) * 30;
+      spawnEffect(3);
+      glimmer(3);
+      score += 40;
+      i--;
+    } else if (tk.life < 0) {
+      tokens.splice(i, 1);
+      i--;
+    }
+  }
+  for (var j = 0; j < hazards.length; j++) {
+    var h = hazards[j];
+    if (Math.hypot(player.x - h.x, player.y - h.y) < h.r + player.r) { die(); return; }
+  }
+  for (var k = 0; k < fx.length; k++) fx[k].life -= dt;
+  TICK++;
+  if (TICK % 9 === 0 && Math.random() < 0.14) spawnToken();
+  if (TICK % 25 === 0 && Math.random() < 0.05 && hazards.length < 5) spawnHazard();
+}
+function updateAudio(dt) {
+  var v = speed / 40;
+  tone(50 + Math.abs(Math.sin(t * 0.3)) * 300, 0.9, clamp(v, 0.02, 0.32), 0.7, 0.12);
+  if (TICK % 6 === 0 && Math.random() < 0.4) tone(130 + rand(120), 0.35, 0.06, 0.15);
+}
+
+var st = null;
+function die() {
+  if (st === "over") return;
+  st = "over";
+  if (AC) {
+    try {
+      var t0 = AC.currentTime;
+      var o = AC.createOscillator(), g = AC.createGain();
+      o.frequency.value = 180; o.type = "sine";
+      g.gain.setValueAtTime(0.05, t0);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + 1.1);
+      o.connect(g); g.connect(AC.destination);
+      o.start(); o.stop(t0 + 1.1);
+    } catch (e) { /* off */ }
+  }
+  $("overScore").textContent = Math.floor(score);
+  $("overTokens").textContent = tokenCount;
+  $("overDepth").textContent = dist.toFixed(1);
+  $("menu").classList.add("hidden");
+  $("paused").classList.add("hidden");
+  $("over").classList.remove("hidden");
+}
+function startGame() {
+  ensureAudio();
+  resetWorld();
+  st = "play";
+  $("menu").classList.add("hidden");
+  $("over").classList.add("hidden");
+  $("paused").classList.add("hidden");
+  step.last = performance.now();
+  step();
+}
+function pauseGame() { st = "paused"; $("paused").classList.remove("hidden"); }
+function resumeGame() {
+  if (st !== "paused") return;
+  st = "play";
+  $("paused").classList.add("hidden");
+}
+function step() {
+  if (st !== "play") { setTimeout(step, 16); return; }
+  var now = performance.now();
+  var dt = (now - step.last) / 1000;
+  if (dt > 0.2) dt = 0.2;
+  step.last = now;
+  t += dt;
+  updatePlayer(dt);
+  updateWorld(dt);
+  updateAudio(dt);
+  draw();
+  requestAnimationFrame(step);
+}
+
+/* ------------------------------ Draw ------------------------------ */
+function drawTrail() {
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  var last = player.trail[player.trail.length - 1];
+  if (last) {
+    ctx.strokeStyle = "rgba(220,240,255,0.06)";
+    ctx.lineWidth = 1 + last[2] * 0.6;
+    ctx.beginPath();
+    if (player.trail[0]) ctx.moveTo(player.trail[0][0], player.trail[0][1]);
+    for (var i = 1; i < player.trail.length; i++) ctx.lineTo(player.trail[i][0], player.trail[i][1]);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+function drawPlayer() {
+  var sp = Math.hypot(player.vx, player.vy);
+  var r = Math.max(5, player.r + 5 * Math.sin(t * 6));
+  ctx.save();
+  ctx.translate(player.x, player.y);
+  var g0 = ctx.createRadialGradient(0, 0, 0, 0, 0, r + 12);
+  g0.addColorStop(0, "#fff4d9"); g0.addColorStop(0.5, "#d8e9ff"); g0.addColorStop(1, "transparent");
+  ctx.fillStyle = g0;
+  ctx.beginPath(); ctx.arc(0, 0, r + 12, 0, Math.PI * 2); ctx.fill();
+  var g1 = ctx.createRadialGradient(0, 0, 0, 0, 0, r);
+  g1.addColorStop(0, "#ffeec0"); g1.addColorStop(0.85, "#3ac0ff"); g1.addColorStop(1, "#062b3c");
+  ctx.fillStyle = g1;
+  ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.fill();
+  if (sp > 0.5) {
+    var ax = player.vx / sp, ay = player.vy / sp;
+    ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 2.2;
+    ctx.beginPath(); ctx.moveTo(ax * (r - 2), ay * (r - 2)); ctx.lineTo(ax * (r + 13), ay * (r + 13)); ctx.stroke();
+    for (var i = 0; i < 3; i++) {
+      var cx = ax * (r + i * 5), cy = ay * (r + i * 5);
+      ctx.save(); ctx.translate(cx, cy); ctx.rotate(t + i * 2);
+      ctx.strokeStyle = "#fff"; ctx.lineWidth = 1.4;
+      ctx.beginPath(); ctx.moveTo(-6, 0); ctx.lineTo(6, 0); ctx.stroke();
+      ctx.restore();
+    }
+  }
+  ctx.rotate(Math.sin(t * 2.5) * 0.15);
+  var g2 = ctx.createRadialGradient(0, 0, 0, 0, 0, r * 1.3);
+  g2.addColorStop(0, "#ffffff10"); g2.addColorStop(1, "transparent");
+  ctx.fillStyle = g2;
+  ctx.beginPath(); ctx.arc(0, 0, r * 1.3, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+}
+function drawTokens() {
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  for (var i = 0; i < tokens.length; i++) {
+    var tk = tokens[i];
+    var a = clamp(tk.life / tk.max, 0.05, 1);
+    var rr = tk.r * a;
+    var g = ctx.createRadialGradient(tk.x, tk.y, 0, tk.x, tk.y, rr + 2);
+    g.addColorStop(0, "#a0d8ff"); g.addColorStop(0.4, "#6cc8ff"); g.addColorStop(1, "transparent");
+    ctx.globalAlpha = a;
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(tk.x, tk.y, rr + 1, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.restore();
+}
+function drawEffects() {
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  for (var i = 0; i < fx.length; i++) {
+    var p = fx[i];
+    var a = clamp(p.life / 100, 0, 1);
+    if (a <= 0) continue;
+    ctx.globalAlpha = a;
+    ctx.fillStyle = p.color;
+    ctx.beginPath(); ctx.arc(p.x, p.y, 2.5 * a, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.restore();
+}
+function drawHazards() {
+  ctx.save();
+  for (var i = 0; i < hazards.length; i++) {
+    var h = hazards[i];
+    var g = ctx.createRadialGradient(h.x, h.y, 0, h.x, h.y, h.r + 4);
+    g.addColorStop(0, "#ffda90"); g.addColorStop(0.6, "#a85a20"); g.addColorStop(1, "transparent");
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(h.x, h.y, h.r + 3, 0, Math.PI * 2); ctx.fill();
+    ctx.globalAlpha = 0.55 + 0.35 * Math.sin(t * 7 + h.rot);
+    ctx.strokeStyle = "#ffe19a"; ctx.lineWidth = 2;
+    ctx.beginPath();
+    for (var k = 0; k < 7; k++) {
+      var ang = h.rot + Math.PI * 2 * k / 7;
+      var len = h.r + 7 + Math.sin(t + k) * 2.5;
+      ctx.moveTo(h.x + Math.cos(ang) * (h.r + 2), h.y + Math.sin(ang) * (h.r + 2));
+      ctx.lineTo(h.x + Math.cos(ang) * len, h.y + Math.sin(ang) * len);
+    }
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+  }
+  ctx.restore();
+}
+function drawFieldAndLight(b) {
+  var g = ctx.createLinearGradient(0, 0, 0, H * 0.92);
+  g.addColorStop(0, b.c0 + "36");
+  g.addColorStop(1, b.c1 + "06");
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H * 0.92);
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  var a = 0.04 + 0.02 * Math.sin(t * 0.4);
+  var g2 = ctx.createLinearGradient(0, H * 0.12, 0, H * 0.88);
+  g2.addColorStop(0, "rgba(140,200,255," + (a + 0.04) + ")");
+  g2.addColorStop(0.25, "rgba(110,230,210," + a + ")");
+  g2.addColorStop(1, "transparent");
+  ctx.fillStyle = g2;
+  ctx.fillRect(0, H * 0.12, W, H * 0.8);
+  ctx.restore();
+}
+function updateHUD() {
+  if (st !== "play") return;
+  $("score").textContent = Math.floor(score);
+  $("depth").textContent = dist.toFixed(1);
+  $("tokens").textContent = tokenCount;
+  $("speed").textContent = speed.toFixed(0);
+}
+function draw() {
+  var b = bnd;
+  ctx.save();
+  ctx.fillStyle = "#040711";
+  ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = b.c0 + "18";
+  ctx.fillRect(0, 0, W, H);
+  drawFieldAndLight(b);
+  drawTokens();
+  drawHazards();
+  drawEffects();
+  drawTrail();
+  drawPlayer();
+  updateHUD();
+  if (Math.floor(t * 4) % 8 === 0) {
+    ctx.save();
+    ctx.strokeStyle = "rgba(94,242,168,0.45)";
+    ctx.lineWidth = 1.3;
+    ctx.globalAlpha = 0.35 + 0.25 * Math.abs(Math.sin(t * 1.7));
+    ctx.beginPath();
+    ctx.arc(player.x, player.y, clamp(t % 2.2, 0.5, 1.5) * (8 + t * 18), 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+  ctx.restore();
+}
+
+/* ------------------------------ UI handlers ------------------------------ */
+document.addEventListener("keydown", function (e) {
+  var km = KEYMAP[e.code];
+  if (km) keyOn(km);
+  if (e.code === "KeyR" && st === "over") startGame();
+  if (e.code === "KeyP" && st === "play") pauseGame();
+  else if (e.code === "KeyP" && st === "paused") resumeGame();
+});
+document.addEventListener("keyup", function (e) {
+  var km = KEYMAP[e.code];
+  if (km) keyOff(km);
+});
+$("startBtn").addEventListener("click", startGame);
+$("resumeBtn").addEventListener("click", resumeGame);
+$("pauseRestart").addEventListener("click", function () { if (st === "paused") startGame(); });
+$("overRestart").addEventListener("click", startGame);
+$("overMenu").addEventListener("click", function () {
+  if (st === "over") { st = null; $("menu").classList.remove("hidden"); }
+});
+window.addEventListener("resize", resize);
+
+ensureAudio();
+setTimeout(function () { $("menu").classList.remove("hidden"); }, 300);
+draw();
+})();
+</script>
+</body>
+</html>
