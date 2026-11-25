@@ -18,3 +18,7 @@
 ## ADR-0003: Документация по стандарту LiterRel/LaborRel
 
 README, docs/CONTEXT.md, docs/DECISIONS.md — по шаблону `D:\GitHub\knowledge\readme-template.md` и `documentation-system.md`.
+
+## ADR-0004: Быстрая навигация + автостарт
+
+После отчёта «всё стоит на месте»: переписан `updatePlayer` (175px/s, 420px/s с Shift), игра запускается сама через 1 с после загрузки, если не нажали «Начать».

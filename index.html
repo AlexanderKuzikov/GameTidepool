@@ -230,11 +230,9 @@ var TICK = 0;
 
 function updatePlayer(dt) {
   var dir = inputDir();
-  var base = bnd.spd * 12;
-  var sp = dir.x || dir.y ? base : 0;
-  var accel = KEYS.shift ? sp * 3.2 : sp;
-  player.vx += dir.x * accel * dt - player.vx * (0.994 + 0.006 * bnd.spd);
-  player.vy += dir.y * accel * dt - player.vy * (0.994 + 0.006 * bnd.spd);
+  var acc = (dir.x || dir.y) ? (KEYS.shift ? 420 : 175) : 0;
+  player.vx += dir.x * acc * dt - player.vx * 0.96;
+  player.vy += dir.y * acc * dt - player.vy * 0.96;
   player.x += player.vx * dt;
   player.y += player.vy * dt;
   player.x = clamp(player.x, 6, W - 6);
@@ -503,7 +501,8 @@ $("overMenu").addEventListener("click", function () {
 window.addEventListener("resize", resize);
 
 ensureAudio();
-setTimeout(function () { $("menu").classList.remove("hidden"); }, 300);
+setTimeout(function () { if (st !== "play") startGame(); }, 400);
+setTimeout(function () { if (st !== "play") $("menu").classList.remove("hidden"); }, 300);
 draw();
 })();
 </script>
